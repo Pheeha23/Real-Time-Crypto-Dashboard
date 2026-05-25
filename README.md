@@ -8,6 +8,11 @@ A fully client-side cryptocurrency dashboard that simulates live market data —
 
 ## 🚀 Live Preview
 
+![Dashboard Preview](assets/dashboard-preview.png)!
+Click here - https://real-time-crypto-dashboard-iota.vercel.app/
+
+OR
+
 Open `index.html` in any browser — prices update automatically every **1.5 seconds** with a simulated live feed.
 
 ---
@@ -39,7 +44,7 @@ Open `index.html` in any browser — prices update automatically every **1.5 sec
 ## 📂 Project Structure
 
 ```
-fe_04_realtime_dashboard/
+realtime_dashboard/
 ├── index.html    # Complete dashboard (HTML + CSS + Canvas JS)
 └── README.md
 ```
@@ -59,21 +64,7 @@ No build step. No dependencies. Just open and go.
 
 ---
 
-## ⚡ Production Upgrade Path
 
-Ready to connect real market data? Swap the simulation for a live WebSocket:
-
-```javascript
-// Replace simulation with real WebSocket:
-const ws = new WebSocket('wss://stream.binance.com/ws/btcusdt@ticker');
-
-ws.onmessage = (event) => {
-  const { c: price, P: changePercent } = JSON.parse(event.data);
-  updatePrice('BTC', parseFloat(price));
-};
-```
-
----
 
 ## 👤 Author
 
