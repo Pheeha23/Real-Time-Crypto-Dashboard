@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CryptoStream — Real-Time Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0f;--surface:#111118;--card:#16161f;--border:#1e1e2e;--accent:#00e5ff;--green:#00e676;--red:#ff1744;--text:#e8e8f0;--muted:#6b6b8a}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',monospace;min-height:100vh}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,229,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+.app{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:28px 20px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:32px;flex-wrap:gap}
+.logo{font-size:22px;font-weight:800;color:var(--accent);letter-spacing:-.02em}
+.status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.5s ease infinite}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,230,118,.4)}50%{opacity:.7;box-shadow:0 0 0 6px rgba(0,230,118,0)}}
+.ticker-bar{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;margin-bottom:28px;scrollbar-width:none}
+.ticker-bar::-webkit-scrollbar{display:none}
+.ticker{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 20px;min-width:160px;cursor:pointer;transition:border-color .15s;flex-shrink:0}
+.ticker:hover,.ticker.active{border-color:var(--accent)}
+.ticker-sym{font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.08em}
+.ticker-price{font-size:20px;font-weight:800;margin:4px 0}
+.ticker-change{font-size:12px;font-weight:600}
+.up{color:var(--green)}.down{color:var(--red)}
+.chart-section{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:24px}
+.chart-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px}
+.chart-title{font-size:16px;font-weight:700}
+.tf-btns{display:flex;gap:6px}
+.tf-btn{padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;cursor:pointer;transition:all .15s}
+.tf-btn.active,.tf-btn:hover{background:var(--accent);color:#000;border-color:var(--accent);font-weight:700}
+canvas{width:100%!important}
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px}
+.stat-label{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.stat-val{font-size:22px;font-weight:800}
+.order-book{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px}
+.ob-title{font-size:15px;font-weight:700;margin-bottom:16px}
+.ob-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.ob-col-title{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.ob-row{display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.03)}
+@media(max-width:600px){.stats-row{grid-template-columns:repeat(2,1fr)}.ob-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">CryptoStream</div>
+    <div class="status"><div class="live-dot"></div><span id="status-text">Connecting…</span></div>
+  </header>
+
+  <div class="ticker-bar" id="ticker-bar"></div>
+
+  <div class="stats-row" id="stats-row"></div>
+
+  <div class="chart-section">
+    <div class="chart-header">
+      <div class="chart-title" id="chart-title">BTC/USD — Price Chart</div>
+      <div class="tf-btns">
+        <button class="tf-btn active" onclick="setTF(this,'1m')">1M</button>
+        <button class="tf-btn" onclick="setTF(this,'5m')">5M</button>
+        <button class="tf-btn" onclick="setTF(this,'1h')">1H</button>
+      </div>
+    </div>
+    <canvas id="price-chart" height="220"></canvas>
+  </div>
+
+  <div class="order-book">
+    <div class="ob-title">Order Book — <span id="ob-pair">BTC/USD</span></div>
+    <div class="ob-grid">
+      <div><div class="ob-col-title" style="color:var(--green)">Bids (Buy)</div><div id="bids"></div></div>
+      <div><div class="ob-col-title" style="color:var(--red)">Asks (Sell)</div><div id="asks"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Simulated real-time crypto data ───────────────────────────────────────────
+const COINS = {
+  BTC:{ name:'Bitcoin',   price:1_420_000, vol:28.4 },
+  ETH:{ name:'Ethereum',  price:68_500,    vol:12.1 },
+  SOL:{ name:'Solana',    price:2_850,     vol:5.7  },
+  BNB:{ name:'BNB',       price:9_400,     vol:3.2  },
+  ADA:{ name:'Cardano',   price:18.50,     vol:1.8  },
+};
+let selected = 'BTC';
+let history  = {}; // coin -> price array
+
+// Initialise history
+Object.keys(COINS).forEach(sym => {
+  history[sym] = [COINS[sym].price];
+  for(let i=0;i<59;i++){
+    const last = history[sym][history[sym].length-1];
+    history[sym].push(+(last*(1+randBetween(-0.008,0.008))).toFixed(2));
+  }
+});
+
+function randBetween(a,b){ return Math.random()*(b-a)+a; }
+
+// ── Price simulation tick ─────────────────────────────────────────────────────
+function tick() {
+  Object.keys(COINS).forEach(sym => {
+    const old = COINS[sym].price;
+    COINS[sym].price = +(old*(1+randBetween(-0.006,0.006))).toFixed(2);
+    COINS[sym].change = +((COINS[sym].price-old)/old*100).toFixed(2);
+    history[sym].push(COINS[sym].price);
+    if(history[sym].length > 60) history[sym].shift();
+  });
+  renderTickers();
+  renderStats();
+  renderChart();
+  renderOrderBook();
+  document.getElementById('status-text').textContent = 'Live — '+new Date().toLocaleTimeString();
+}
+
+// ── Render Tickers ─────────────────────────────────────────────────────────────
+function renderTickers() {
+  const bar = document.getElementById('ticker-bar');
+  bar.innerHTML = Object.entries(COINS).map(([sym,d])=>{
+    const chg = d.change||0;
+    const cls = chg>=0?'up':'down';
+    const arrow = chg>=0?'▲':'▼';
+    return `<div class="ticker ${sym===selected?'active':''}" onclick="selectCoin('${sym}')">
+      <div class="ticker-sym">${sym}/ZAR</div>
+      <div class="ticker-price">R${fmt(d.price)}</div>
+      <div class="ticker-change ${cls}">${arrow} ${Math.abs(chg).toFixed(2)}%</div>
+    </div>`;
+  }).join('');
+}
+
+function fmt(n){ return n>=1000?n.toLocaleString('en-ZA',{minimumFractionDigits:0,maximumFractionDigits:0}):n.toFixed(2); }
+
+// ── Render Stats ──────────────────────────────────────────────────────────────
+function renderStats() {
+  const d = COINS[selected];
+  const hist = history[selected];
+  const high = Math.max(...hist); const low = Math.min(...hist);
+  document.getElementById('stats-row').innerHTML = [
+    ['Price',    `R${fmt(d.price)}`, d.change>=0?'green':'red'],
+    ['24h High', `R${fmt(high)}`,    'accent'],
+    ['24h Low',  `R${fmt(low)}`,     'accent'],
+    ['Volume',   `${d.vol.toFixed(1)}B`, 'accent'],
+  ].map(([l,v,c])=>`<div class="stat-card">
+    <div class="stat-label">${l}</div>
+    <div class="stat-val" style="color:var(--${c})">${v}</div>
+  </div>`).join('');
+}
+
+// ── Canvas Chart ──────────────────────────────────────────────────────────────
+let currentTF = '1m';
+function setTF(btn, tf) {
+  document.querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active'); currentTF = tf; renderChart();
+}
+
+function renderChart() {
+  const canvas = document.getElementById('price-chart');
+  const ctx    = canvas.getContext('2d');
+  const rect   = canvas.parentElement.getBoundingClientRect();
+  canvas.width  = rect.width - 48;
+  canvas.height = 220;
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+
+  const data = history[selected];
+  const pad  = { t:20, r:20, b:30, l:60 };
+  const cW   = W - pad.l - pad.r;
+  const cH   = H - pad.t - pad.b;
+  const min  = Math.min(...data)*0.999;
+  const max  = Math.max(...data)*1.001;
+
+  const x = i => pad.l + (i/(data.length-1))*cW;
+  const y = v => pad.t + cH - (v-min)/(max-min)*cH;
+
+  // Grid lines
+  ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=1;
+  [0,.25,.5,.75,1].forEach(f=>{
+    const gy = pad.t + cH*f;
+    ctx.beginPath(); ctx.moveTo(pad.l,gy); ctx.lineTo(pad.l+cW,gy); ctx.stroke();
+    const val = max - f*(max-min);
+    ctx.fillStyle='#555'; ctx.font='10px monospace'; ctx.textAlign='right';
+    ctx.fillText('R'+fmt(val), pad.l-6, gy+4);
+  });
+
+  // Area fill
+  const grad = ctx.createLinearGradient(0,pad.t,0,pad.t+cH);
+  grad.addColorStop(0,'rgba(0,229,255,.25)');
+  grad.addColorStop(1,'rgba(0,229,255,0)');
+  ctx.beginPath(); ctx.moveTo(x(0),y(data[0]));
+  data.forEach((v,i)=>ctx.lineTo(x(i),y(v)));
+  ctx.lineTo(x(data.length-1),pad.t+cH); ctx.lineTo(x(0),pad.t+cH); ctx.closePath();
+  ctx.fillStyle=grad; ctx.fill();
+
+  // Line
+  ctx.beginPath(); ctx.strokeStyle='#00e5ff'; ctx.lineWidth=2;
+  data.forEach((v,i)=>i===0?ctx.moveTo(x(i),y(v)):ctx.lineTo(x(i),y(v)));
+  ctx.stroke();
+
+  // Last price dot
+  const lx=x(data.length-1), ly=y(data[data.length-1]);
+  ctx.beginPath(); ctx.arc(lx,ly,5,0,Math.PI*2);
+  ctx.fillStyle='#00e5ff'; ctx.fill();
+
+  document.getElementById('chart-title').textContent =
+    `${selected}/ZAR — Price (${currentTF})`;
+}
+
+// ── Order Book ────────────────────────────────────────────────────────────────
+function renderOrderBook() {
+  const price = COINS[selected].price;
+  document.getElementById('ob-pair').textContent = `${selected}/ZAR`;
+  const bids = Array.from({length:6},(_,i)=>({price:(price*(1-0.001*(i+1))).toFixed(2),size:(Math.random()*2+0.1).toFixed(4)}));
+  const asks = Array.from({length:6},(_,i)=>({price:(price*(1+0.001*(i+1))).toFixed(2),size:(Math.random()*2+0.1).toFixed(4)}));
+  document.getElementById('bids').innerHTML = bids.map(b=>`<div class="ob-row"><span style="color:var(--green)">R${fmt(+b.price)}</span><span>${b.size}</span></div>`).join('');
+  document.getElementById('asks').innerHTML = asks.map(a=>`<div class="ob-row"><span style="color:var(--red)">R${fmt(+a.price)}</span><span>${a.size}</span></div>`).join('');
+}
+
+function selectCoin(sym){ selected=sym; renderStats(); renderChart(); renderOrderBook(); }
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+renderTickers(); renderStats(); renderChart(); renderOrderBook();
+setInterval(tick, 1500);
+</script>
+</body>
+</html>
